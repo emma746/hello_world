@@ -1,0 +1,87 @@
+-- 交差分析
+---小时与年龄的花费占比[交叉分析]
+select
+*,
+cast(cast(cost*100/sum(cost) over(partition by age) as DECIMAL(9,2)) as VARCHAR)+'%' as per
+from (
+select 
+SUBSTRING(createtime,12,2) hours,
+age,
+sum(cost) cost
+from ad_test
+group by SUBSTRING(createtime,12,2), age) as a
+order by age, hours
+
+---对比分析
+-- 横向分析，同样时间段不同指标
+-- 纵向分析，同一个对象不同时期
+select 
+channel,
+sum(case when SUBSTRING(createtime,1,10) between '2020-11-01' and '2020-11-30' and type ='buy' then 1 else 0 end) as '11月购买订单量',
+sum(case when SUBSTRING(createtime,1,10) between '2020-12-01' and '2020-12-31' and type ='buy' then 1 else 0 end) as '12月购买订单量'
+from ad_test
+group by channel
+ORDER BY '12月购买订单量' desc
+
+--用户漏斗模型
+SELECT 
+	sum(cost) cost,
+	SUM(amount) amount,
+	sum(case when  type='show' then 1 else 0 end) show,
+	sum(case when  type='click' then 1 else 0 end) click,
+	sum(case when  type='buy' then 1 else 0 end) buy
+FROM ad_test adt
+
+select
+type,
+count(*) '计数'
+from ad_test
+group by type
+order by '计数' desc
+
+---复购率 分析用户粘性
+SELECT 
+	buy_times,
+	COUNT(*) AS '人数' 
+FROM (
+			SELECT 
+				COUNT(userid) AS buy_times 
+			FROM ad_test
+			WHERE type='buy'
+			GROUP BY userid
+			)a
+GROUP BY buy_times
+ORDER BY buy_times DES
+
+--abtest 
+SELECT 
+	type,
+	count(case when  abtest=1 then 1 else null end) as  "abtest1",
+	count(case when  abtest=2 then 1 else null end) as  "abtest2"
+FROM ad_test adt
+group by type
+order by type desc
+
+
+-- 做数据下钻的时候
+---算CTR和CVR
+--CTR是点击/曝光，主要考虑投放的展示内容，文案，广告图等优化,衡量用户从看到广告到到点击广告的比例
+--CVR是购买数/点击数  主要考核点进去后落地页的优化内容
+--注意除数为0
+--限制某个范围内
+SELECT 
+				city,
+				sum(case when  type='show' then 1 else 0 end) as  "曝光",
+				sum(case when  type='click' then 1 else 0 end) as  "点击",
+				sum(cost) "花费",
+				Convert(decimal(18,2),sum(cost)/sum(case when  type='show' then 1 else 0 end)*1000) CPM,--千次曝光成本
+				Convert(decimal(18,2),sum(cost)/sum(case when  type='click' then 1 else 0 end)) CPC,---点击成本
+				sum(case when  type='buy' then 1 else 0 end) as  "购买",
+				cast(ROUND(sum(case when  type='click' then 1 else 0 end)*100/NULLIF(sum(case when  type='show' then 1 else 0 end),0),2) as varchar)+'%' AS CTR,
+				cast(ROUND(sum(case when  type='buy' then 1 else 0 end)*100/NULLIF(sum(case when  type='click' then 1 else 0 end),0),2) as varchar)+'%' AS CVR,
+				sum(amount) "营收",
+				round(sum(cost)/sum(case when  type='buy' then 1 else 0 end),2) as  "订单成本" 
+			FROM ad_test adt
+			GROUP BY city
+			having sum(case when  type='show' then 1 else 0 end)>5000
+			ORDER BY sum(case when  type='buy' then 1 else 0 end)*100/NULLIF(sum(case when  type='click' then 1 else 0 end),0) desc

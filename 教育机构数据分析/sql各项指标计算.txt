@@ -1,0 +1,178 @@
+select
+min(createtime),
+max(createtime),
+MIN(DATEPART(HH,createtime)),
+MAX(DATEPART(HH,createtime))
+FROM ad_test
+
+-- 渠道属性
+select channel,count(distinct account_id) as 用户数 
+from ad_test_2000
+group by channel	
+order by 用户数  desc
+
+-- 用户行为属性(type=show才有cost，type=buy,才有amount )
+select type, count(distinct account_id) as 用户数
+from ad_test_2000
+group by type
+order by 用户数 desc
+
+--用户自身属性
+select city,city_level,count(distinct account_id) as 用户数 
+from ad_test_2000
+group by city,city_level
+order by 用户数  desc
+
+--商品属性
+select item_type,count(distinct account_id) as 用户数 
+from ad_test1_20000
+group by item_type
+order by 用户数  desc
+
+-- CPM=广告费/展现量*1000 按千次展现付费 SHOW
+-- CPC=广告费/点击量 按点击付费 CLICK
+-- CTR=点击量/展现量*100% 点击率 click/show
+-- CVR=转化量/展现量*100% 转化率 buy/show
+-- ROI return on investment, 收入/支出*100%
+
+select
+sum(amount) amount,
+round(sum(cost),2) cost,
+sum(case when type='show' then 1 else 0 end) as ad_show,
+sum(case when type='click' then 1 else 0 end) as ad_click,
+sum(case when type='buy' then 1 else 0 end) as ad_buy,
+cast(sum(cost)/NULLIF(sum(case when type='show' then 1 else 0 end),0)*100 as decimal(9,1)) as CPM,
+cast(sum(cost)/NULLIF(sum(case when type='click' then 1 else 0 end),0)*100 as decimal(9,1)) as CPC,
+cast(ROUND(sum(case when type='click' then 1 else 0 end)*100/NULLIF(sum(case when  type='show' then 1 else 0 end),0),2) as varchar)+'%' AS CTR,
+	cast(ROUND(sum(case when  type='buy' then 1 else 0 end)*100/NULLIF(sum(case when  type='click' then 1 else 0 end),0),2) as varchar)+'%' AS CVR,
+round(sum(cost)/sum(case when  type='buy' then 1 else 0 end),2) as  "订单成本",	
+round(sum(amount)/sum(cost),2) as ROI
+from ad_test
+where SUBSTRING(createtime,1,10) between '2020-12-01' and '2020-12-31' 
+group by channel
+
+-- 外部因素：渠道，日期
+-- 用户属性：地域。年龄，职业
+-- 商品因素：商品价格，商品落地页链接样式，素材
+-- 
+-- 营收= 数量 * 线索转化率 * ARPU（客单价）
+-- 
+-- 假设优先从曝光数量和转化率CTR入手
+-- 
+-- 假设同样的曝光怎样提升CTR
+-- CTR=点击量/展现量*100% 点击率 click/show
+-- 分不同的渠道
+
+select
+channel,
+sum(case when  type='show' then 1 else 0 end) as  ad_show,
+sum(case when  type='click' then 1 else 0 end) as  ad_click,
+sum(case when  type='click' then 1 else 0 end)*1.0/sum(case when  type='show' then 1 else 0 end) ctr_1,
+cast(ROUND(sum(case when type='click' then 1 else 0 end)*100/NULLIF(sum(case when  type='show' then 1 else 0 end),0),2) as varchar)+'%' AS CTR,
+round(sum(amount)/sum(cost),2) as ROI,
+row_number() over(order by round(sum(amount)/sum(cost),2) desc) as rank_roi
+from ad_test
+group by channel
+having sum(case when type='show' then 1 else 0 end) > 1000
+order by ad_show DESC
+
+线下商城曝光率最高但是ctr是19%，点击量有待改进，把广告预算放在roi最好的情况下，抖音和微信公众号可以向广点通学习，因为广点通的roi更好，
+对于成本较低，roi较低的较大投放，
+对于成本低，规模大的较大投放，
+百度信息流是成本高，规模大，需要优化成本，
+微信公众号是成本高，规模小，这个时候需要减小资源
+
+从日期分析，不同日期点击率
+select
+SUBSTRING(createtime,1, 10),
+sum(case when  type='show' then 1 else 0 end) as  ad_show,
+sum(case when  type='click' then 1 else 0 end) as  ad_click,
+sum(case when  type='click' then 1 else 0 end)*1.0/sum(case when  type='show' then 1 else 0 end) ctr_1,
+cast(ROUND(sum(case when type='click' then 1 else 0 end)*100/NULLIF(sum(case when  type='show' then 1 else 0 end),0),2) as varchar)+'%' AS CTR
+FROM ad_test adt
+group by SUBSTRING(createtime, 1,10)
+-- order by days desc
+-- 
+
+创意素材对比
+不同小时点击率
+select
+SUBSTRING(createtime,12, 2) hours,
+sum(case when  type='show' then 1 else 0 end) as  ad_show,
+sum(case when  type='click' then 1 else 0 end) as  ad_click,
+sum(case when  type='click' then 1 else 0 end)*1.0/sum(case when  type='show' then 1 else 0 end) ctr_1,
+cast(ROUND(sum(case when type='click' then 1 else 0 end)*100/NULLIF(sum(case when  type='show' then 1 else 0 end),0),2) as varchar)+'%' AS CTR
+FROM ad_test adt
+group by SUBSTRING(createtime, 12,2)
+order by hours
+
+---年龄属性
+select
+COALESCE(age,'总计') age,
+sum(case when  type='show' then 1 else 0 end) as  ad_show,
+sum(case when  type='click' then 1 else 0 end) as  ad_click,
+sum(case when  type='click' then 1 else 0 end)*1.0/sum(case when  type='show' then 1 else 0 end) ctr_1,
+cast(ROUND(sum(case when type='click' then 1 else 0 end)*100/NULLIF(sum(case when  type='show' then 1 else 0 end),0),2) as varchar)+'%' AS CTR
+FROM ad_test adt
+group by rollup(age)
+order by age
+
+--性别+用户属性
+select
+COALESCE(sex,'总计') sex,
+COALESCE(user_type,'总计') usrtype,
+sum(cost) "消耗",
+SUM(amount) "营收",
+sum(case when  type='show' then 1 else 0 end) as  ad_show,
+sum(case when  type='click' then 1 else 0 end) as  ad_click,
+sum(case when  type='click' then 1 else 0 end)*1.0/sum(case when  type='show' then 1 else 0 end) ctr_1,
+cast(ROUND(sum(case when type='click' then 1 else 0 end)*100/NULLIF(sum(case when  type='show' then 1 else 0 end),0),2) as varchar)+'%' AS CTR
+FROM ad_test adt
+group by rollup(sex,user_type)
+order by '消耗'
+
+--省份展示占比
+select 
+*, 
+cast(cast(ad_show*100/sum(ad_show) over(partition by 1) as DECIMAL(9,2)) as VARCHAR)+'%' as '展示占比'
+from (select 
+province,
+sum(case when  type='show' then 1 else 0 end) as  ad_show,
+sum(case when  type='click' then 1 else 0 end) as  ad_click,
+sum(case when  type='click' then 1 else 0 end)*1.0/sum(case when  type='show' then 1 else 0 end) ctr_1,
+cast(ROUND(sum(case when type='click' then 1 else 0 end)*100/NULLIF(sum(case when  type='show' then 1 else 0 end),0),2) as varchar)+'%' AS CTR
+FROM ad_test 
+group by province) as a1
+order by ad_show*100/sum(ad_show) over(partition by 1) desc
+
+---职业属性
+SELECT 
+	profession,
+	sum(case when  type='show' then 1 else 0 end) as  ad_show,
+	sum(case when  type='click' then 1 else 0 end) as  ad_click,
+	sum(case when  type='click' then 1 else 0 end)*1.0/sum(case when  type='show' then 1 else 0 end) ctr_1,
+	---CONCAT(ROUND(sum(case when  type='click' then 1 else 0 end)*100/sum(case when  type='show' then 1 else 0 end),2),'%') AS ctr
+	cast(ROUND(sum(case when  type='click' then 1 else 0 end)*100/sum(case when  type='show' then 1 else 0 end),2) as varchar)+'%' AS ctr
+FROM ad_test adt
+GROUP BY profession
+ORDER BY ad_show	desc
+
+---商品属性
+SELECT 
+	item_type,ad_id,
+	sum(case when  type='show' then 1 else 0 end) as  ad_show,
+	sum(case when  type='click' then 1 else 0 end) as  ad_click,
+	--sum(case when  type='click' then 1 else 0 end)*1.0/sum(case when  type='show' then 1 else 0 end) ctr_1,
+	---CONCAT(ROUND(sum(case when  type='click' then 1 else 0 end)*100/sum(case when  type='show' then 1 else 0 end),2),'%') AS ctr
+	cast(ROUND(sum(case when  type='click' then 1 else 0 end)*100/NULLIF(sum(case when  type='show' then 1 else 0 end),0),2) as varchar)+'%' AS ctr
+FROM ad_test adt
+GROUP BY item_type,ad_id
+ORDER BY ad_show	desc	
+
+---词云图城市营收
+select
+city,
+sum(amount) 营收
+from ad_test
+group by city
+order by '营收' desc
